@@ -1,41 +1,48 @@
-use anyhow::Result;
-use env_logger::Env;
-use log::{debug, error, info, warn};
-use std::io::Write;
-use std::net::TcpListener;
+use anyhow::{Result, anyhow};
+use core::fmt;
+use log::{error, info};
+use std::io::{BufRead, BufReader, BufWriter, Write};
+use std::net::{TcpListener, TcpStream};
 
+mod constants;
+mod http;
 
-struct HTTPRequest {
-    method: String,
-    url: String,
-    version: String
-}
-
-
-fn is_http_request(mut stream : TcpStream) -> bool {
-    
-}
 fn main() -> Result<()> {
-    env_logger::Builder::from_env(Env::default().default_filter_or("info"))
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_timestamp_millis()
-        .format_module_path(true)
-        .format_source_path(true)
         .init();
 
-    let listener = TcpListener::bind("127.0.0.1:4221").unwrap();
+    let listener = TcpListener::bind("127.0.0.1:4221")?;
 
     for stream in listener.incoming() {
-        match stream {
-            Ok(mut _stream) => {
-                info!("Connection established");
-                info!("the content of the stream: \n{:#?}", _stream);
-                const SUCCESS: &[u8] = b"HTTP/1.1 200 OK\r\n\r\n";
-                const ERROR: &[u8] = b"HTTP/1.1 500 Internal Server Error\r\n\r\n";
-                
-                _stream.write(SUCCESS)?;
+        let mut stream = stream?; // `mut` here because we write to it below
+
+        let _req = http::Request::HTTPRequest::from_stream(&stream);
+        match _req {
+            Ok(req) => {
+                info!("request: {:?}", req);
+                let mut writer = BufWriter::new(stream);
+                if req.url.eq("/index.html") {
+                    writer.write_fmt(format_args!(
+                        "{} {}{}{}",
+                        constants::http::VERSION,
+                        constants::response::OK,
+                        constants::http::CRLF,
+                        constants::http::CRLF,
+                    ))?;
+                } else {
+                    writer.write_fmt(format_args!(
+                        "{} {}{}{}",
+                        constants::http::VERSION,
+                        constants::response::BAD_REQUEST,
+                        constants::http::CRLF,
+                        constants::http::CRLF,
+                    ))?;
+                }
             }
             Err(e) => {
-                println!("Error: {}", e);
+                error!("bad request: {}", e);
+                stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\n\r\n")?;
             }
         }
     }
