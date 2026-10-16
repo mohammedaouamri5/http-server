@@ -1,7 +1,9 @@
-use anyhow::{Result, anyhow};
 use serde::Serialize;
 use std::collections::HashMap;
-use std::fs;
+use std::{fs, io};
+
+use crate::http::Error::HTTPError;
+use crate::{http_err, utile};
 
 #[derive(Debug)]
 pub struct HTTPResponse {
@@ -41,22 +43,30 @@ impl HTTPResponse {
         self.status = status.to_string();
         self
     }
-    pub fn json<T: Serialize>(&mut self, value: &T) -> Result<&mut Self> {
-        let bytes = serde_json::to_vec(value)?;
-        Ok(self.set_bytes("application/json", bytes))
+
+    pub fn json<T: Serialize>(&mut self, value: &T) -> Result<&mut Self, HTTPError> {
+        match serde_json::to_vec(value) {
+            Ok(bytes) => Ok(self.set_bytes("application/json", bytes)),
+            Err(e) => Err(http_err!(
+                InternalServerError,
+                "failed to serialize json: {}",
+                e
+            )),
+        }
     }
 
-    pub fn set_file(&mut self, path: &str) -> Result<&mut Self> {
-        // TODO : check if file exists
-        // TODO : check redability
-
-        let bytes = fs::read(path)?;
+    pub fn set_file(&mut self, path: &str) -> Result<&mut Self, HTTPError> {
+        let bytes = fs::read(path).map_err(|e| match e.kind() {
+            io::ErrorKind::NotFound => http_err!(NotFound, "file not found: {}", path),
+            io::ErrorKind::PermissionDenied => http_err!(Forbidden, "cannot read {}: {}", path, e),
+            _ => http_err!(InternalServerError, "cannot read {}: {}", path, e),
+        })?;
         Ok(self.set_bytes(mime_for(path), bytes))
     }
 
-    pub fn buffer(&self) -> Result<Vec<u8>> {
+    pub fn buffer(&self) -> Result<Vec<u8>, HTTPError> {
         if self.status.is_empty() {
-            return Err(anyhow!("status is empty"));
+            return Err(http_err!(InternalServerError, "status is empty"));
         }
         let mut out = Vec::new();
         // start line

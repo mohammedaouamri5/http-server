@@ -8,27 +8,13 @@ use crate::constants::response::{INTERNAL_SERVER_ERROR, NOT_FOUND, OK};
 
 mod constants;
 mod http;
-
-fn resolve_file(path: &str) -> Option<PathBuf> {
-    let relative = if path == "/" {
-        "index.html"
-    } else {
-        path.trim_start_matches('/')
-    };
-
-    let base = Path::new("public").canonicalize().ok()?;
-    let full = base.join(relative).canonicalize().ok()?;
-
-    // Make sure the final path is still inside public/
-    if full.starts_with(&base) && full.is_file() {
-        Some(full)
-    } else {
-        None
-    }
-}
+mod utile;
 
 fn main() -> Result<()> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+        .format_line_number(true)
+        .format_module_path(true)
+        .format_file(true)
         .format_timestamp_millis()
         .init();
 
@@ -43,23 +29,17 @@ fn main() -> Result<()> {
             Ok(req) => {
                 info!("request: {:?}", req);
                 if req.method == "GET" {
-                    if let Some(path) = req.url.strip_prefix("/") {
-                        warn!("path: {}", path.to_string());
-                        if let Some(path) = resolve_file(path) {
-                            warn!("path: {}", path.to_string_lossy());
-                            if res.set_file(&path.to_string_lossy()).is_err() {
-                                res.set_status(INTERNAL_SERVER_ERROR);
-                            }
-
+                    let _path = utile::files::is_in_public(&req.url);
+                    if _path.is_ok() {
+                        let path = _path.unwrap();
+                        if path.is_some() {
+                            let path = path.unwrap();
                             res.set_status(OK);
-                        } else {
-                            res.set_status(NOT_FOUND);
+                            res.set_file(path.to_str().unwrap())?;
+                            let body = res.buffer().unwrap();
+                            stream.write_all(&body)?;
                         }
-                    } else {
-                        res.set_status(NOT_FOUND);
                     }
-                    let body = res.buffer().unwrap();
-                    stream.write_all(&body)?;
                 }
             }
             Err(e) => {
