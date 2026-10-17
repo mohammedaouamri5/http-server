@@ -1,4 +1,3 @@
-use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read};
 use std::net::TcpStream;

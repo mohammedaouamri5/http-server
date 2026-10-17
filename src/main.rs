@@ -1,4 +1,3 @@
-use anyhow::{Result, anyhow};
 use log::{debug, error, info, warn};
 use std::io::Write;
 use std::net::TcpListener;
@@ -10,7 +9,7 @@ mod constants;
 mod http;
 mod utile;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_line_number(true)
         .format_module_path(true)
