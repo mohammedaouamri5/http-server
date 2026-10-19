@@ -1,3 +1,4 @@
+use anyhow::Context;
 // Cargo.toml: regex = "1"
 use regex::Regex;
 use std::collections::HashMap;
@@ -90,8 +91,8 @@ impl Router {
     }
 
     // look up the route, run global middlewares, then the route itself
-    pub fn route(&self, method: &str, path: &str) -> Option<HashMap<String, String>> {
-        let (route, params) = self.get_route(method, path)?;
+    pub fn route(&self, ctx: &Context) -> Option<HashMap<String, String>> {
+        let (route, params) = self.get_route(ctx)?;
 
         for middleware in self.middlewares.iter() {
             middleware();
@@ -134,11 +135,11 @@ impl Route {
         Regex::new(&format!("^{pattern}/?$")).expect("invalid route path")
     }
 
-    fn run(&self) {
-        for middleware in self.middlewares.iter() {
-            middleware();
+    fn run(&self, ctx: &mut HTTPContext) {
+        for middleware in &self.middlewares {
+            middleware(ctx);
         }
-        (self.handler)();
+        (self.handler)(ctx);
     }
 }
 

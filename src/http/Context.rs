@@ -1,21 +1,25 @@
-use std::{collections::HashMap, io::Write, net::TcpStream};
+use std::{collections::HashMap, io::Write, net::TcpStream, string};
 
 use crate::{
     constants::response,
-    http::{Error::HTTPError, Request::HTTPRequest, Response::HTTPResponse},
+    http::{
+        Error::HTTPError::{self, InternalServerError},
+        Request::HTTPRequest,
+        Response::HTTPResponse,
+    },
+    http_err,
 };
-
 #[derive(Debug)]
-pub struct HTTPContext<'a> {
-    stream: &'a mut TcpStream,
+pub struct HTTPContext {
+    stream: TcpStream,
     request: HTTPRequest,
     response: HTTPResponse,
     Data: HashMap<String, String>,
 }
 
-impl<'a> HTTPContext<'a> {
-    pub fn new(stream: &'a mut TcpStream) -> Result<Self, HTTPError> {
-        let request = match HTTPRequest::from_stream(stream) {
+impl HTTPContext {
+    pub fn new(mut stream: TcpStream) -> Result<Self, HTTPError> {
+        let request = match HTTPRequest::from_stream(&stream) {
             Ok(request) => request,
             Err(err) => {
                 Self::_suspend(&err, stream);
@@ -33,7 +37,7 @@ impl<'a> HTTPContext<'a> {
         })
     }
 
-    fn _suspend(__error: &HTTPError, stream: &mut TcpStream) {
+    fn _suspend(__error: &HTTPError, mut stream: TcpStream) {
         let mut response = HTTPResponse::new();
         response.set_status(
             __error
@@ -43,6 +47,17 @@ impl<'a> HTTPContext<'a> {
         let body = response.buffer().unwrap();
         stream.write_all(&body).unwrap();
     }
+
+    pub fn get_url(&self) -> Result<&String, HTTPError> {
+        if self.request.url.is_empty() {
+            return Err(http_err!(InternalServerError, "can get the URL"));
+        }
+        return Ok(&self.request.url);
+    }
+    pub fn get_method(&self) -> Result<&String, HTTPError> {
+        if self.request.url.is_empty() {
+            return Err(http_err!(InternalServerError, "can get the URL"));
+        }
+        return Ok(&self.request.method);
+    }
 }
-
-
