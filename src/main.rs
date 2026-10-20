@@ -4,6 +4,7 @@ use std::net::{TcpListener, TcpStream};
 use crate::{
     constants::server,
     http::{Context::HTTPContext, Error::HTTPError, Router::HTTPRouter},
+    utile::files::is_in_public,
 };
 
 mod constants;
@@ -54,11 +55,6 @@ fn handle(stream: TcpStream, router: &'static HTTPRouter) -> Result<(), HTTPErro
     ctx.run()
 }
 
-fn index(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
-    ctx.text("Hello, World!");
-    Ok(())
-}
-
 fn health(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
     ctx.json(&serde_json::json!({ "status": "ok" }))
 }
@@ -83,5 +79,19 @@ fn user(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
 fn echo(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
     let body = String::from_utf8_lossy(ctx.get_body()).to_string();
     ctx.text(&body);
+    Ok(())
+}
+
+fn index(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
+    match is_in_public("index.html") {
+        Err(err) => ctx.Error(err),
+        Ok(Exist) => match Exist {
+            Some(path) => ctx.send_file(
+                path.to_str()
+                    .ok_or_else(|| http_err!(InternalServerError, "path is not valid UTF-8"))?,
+            )?,
+            None => ctx.Error(http_err!(NotFound, "file not found")),
+        },
+    }
     Ok(())
 }

@@ -180,6 +180,10 @@ impl<'a> HTTPContext<'a> {
         self.response.json(value)?;
         Ok(())
     }
+    pub fn send_file(&mut self, path: &str) -> Result<(), HTTPError> {
+        self.response.set_file(path)?;
+        Ok(())
+    }
 
     pub fn set_status(&mut self, status: &str) {
         self.response.set_status(status);
