@@ -1,16 +1,15 @@
-use log::{debug, error, info, warn};
-use std::io::Write;
-use std::net::TcpListener;
+use log::{error, info};
+use std::net::{TcpListener, TcpStream};
 
-use crate::constants::response::OK;
+use crate::{
+    constants::server,
+    http::{Context::HTTPContext, Error::HTTPError, Router::HTTPRouter},
+};
 
 mod constants;
 mod http;
 mod utile;
 
-//
-// type HandlerFunc = fn(&mut HTTPContext) -> Result<(), HTTPError>;
-//
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_line_number(true)
@@ -19,36 +18,70 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .format_timestamp_millis()
         .init();
 
-    let listener = TcpListener::bind("127.0.0.1:4221")?;
+    let mut router = HTTPRouter::new();
+    router.GET("/", index, &[]);
+    router.GET("/health", health, &[]);
+    router.GET("/hello/:name", hello, &[]);
+    router.GET("/users/:id", user, &[]);
+    router.POST("/echo", echo, &[]);
+    router.compile();
+
+    // leak it once so every thread can hold a &'static HTTPRouter
+    let router: &'static HTTPRouter = Box::leak(Box::new(router));
+
+    let listener = TcpListener::bind(server::ADDRESS)?;
+    info!("listening on http://{}", server::ADDRESS);
 
     for stream in listener.incoming() {
-        let mut stream = stream?; // `mut` here because we write to it below
-
-        let _req = http::Request::HTTPRequest::from_stream(&stream);
-        let mut res = http::Response::HTTPResponse::new();
-        match _req {
-            Ok(req) => {
-                info!("request: {:?}", req);
-                if req.method == "GET" {
-                    let _path = utile::files::is_in_public(&req.url);
-                    if _path.is_ok() {
-                        let path = _path.unwrap();
-                        if path.is_some() {
-                            let path = path.unwrap();
-                            res.set_status(OK);
-                            res.set_file(path.to_str().unwrap())?;
-                            let body = res.buffer().unwrap();
-                            stream.write_all(&body)?;
-                        }
-                    }
-                }
+        let stream = stream?;
+        std::thread::spawn(move || {
+            if let Err(err) = handle(stream, router) {
+                error!("request failed: {}", err);
             }
-            Err(e) => {
-                error!("bad request: {}", e);
-                stream.write_all(b"HTTP/1.1 500 Internal Server Error\r\n\r\n")?;
-            }
-        }
+        });
     }
 
+    Ok(())
+}
+
+fn handle(stream: TcpStream, router: &'static HTTPRouter) -> Result<(), HTTPError> {
+    // `new` already writes a 400 response if the request can't be parsed
+    let mut ctx = HTTPContext::new(stream)?;
+    info!("{} {}", ctx.get_method()?, ctx.get_url()?);
+
+    ctx.route(router);
+    // `run` writes the response (200, or 404/500)
+    ctx.run()
+}
+
+fn index(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
+    ctx.text("Hello, World!");
+    Ok(())
+}
+
+fn health(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
+    ctx.json(&serde_json::json!({ "status": "ok" }))
+}
+
+fn hello(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
+    let name = ctx
+        .get_param("name")
+        .cloned()
+        .unwrap_or_else(|| "stranger".to_string());
+    ctx.text(&format!("Hello, {name}!"));
+    Ok(())
+}
+
+fn user(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
+    let id = ctx
+        .get_param("id")
+        .cloned()
+        .unwrap_or_else(|| "0".to_string());
+    ctx.json(&serde_json::json!({ "id": id }))
+}
+
+fn echo(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {
+    let body = String::from_utf8_lossy(ctx.get_body()).to_string();
+    ctx.text(&body);
     Ok(())
 }

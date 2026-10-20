@@ -58,25 +58,29 @@ impl HTTPRouter {
             .push(HTTPRoute::new(path, "POST", handler, middlewares));
     }
 
-    // turns every route path into a regex so lookups are just a matching loop
+    // turns every route path into a regex and merges the global middlewares
+    // into each route, so every route has one list to run
     pub fn compile(&mut self) {
+        assert!(!self.is_compiled, "compile() called twice");
+
         for route in self.get.iter_mut().chain(self.post.iter_mut()) {
             route.regex = Some(HTTPRoute::path_to_regex(&route.path));
+            // global middlewares first, then the route's own
+            route.middlewares = self
+                .middlewares
+                .iter()
+                .chain(route.middlewares.iter())
+                .copied()
+                .collect();
         }
         self.is_compiled = true;
     }
 
-    // finds the matching route and extracts the path params
     pub fn get_route(
         &self,
         method: &str,
         path: &str,
-    ) -> Option<(
-        HandlerFunc,
-        HashMap<String, String>,
-        &Vec<Middleware>,
-        &Vec<Middleware>,
-    )> {
+    ) -> Option<(HandlerFunc, HashMap<String, String>, &Vec<Middleware>)> {
         assert!(self.is_compiled, "call compile() first");
 
         let routes = match method {
@@ -97,7 +101,7 @@ impl HTTPRouter {
                     })
                     .collect();
 
-                return Some((route.handler, params, &self.middlewares, &route.middlewares));
+                return Some((route.handler, params, &route.middlewares));
             }
         }
         None
