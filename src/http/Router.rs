@@ -1,32 +1,34 @@
-use anyhow::Context;
-// Cargo.toml: regex = "1"
 use regex::Regex;
 use std::collections::HashMap;
 
-use crate::http::{Context::HTTPContext, Error::HTTPError};
+use crate::http::{
+    Context::HTTPContext,
+    Error::{Flow, HTTPError},
+};
 
-type HandlerFunc = fn(&mut HTTPContext) -> Result<(), HTTPError>;
+pub type HandlerFunc = fn(&mut HTTPContext<'_>) -> Result<(), HTTPError>;
+pub type Middleware = fn(&mut HTTPContext<'_>) -> Flow;
 // this will have a list of routes and the function handler of each
 #[derive(Debug)]
-struct Router {
-    middlewares: Vec<HandlerFunc>,
+pub struct HTTPRouter {
+    middlewares: Vec<Middleware>,
     // routes per method
-    get: Vec<Route>,
-    post: Vec<Route>,
+    get: Vec<HTTPRoute>,
+    post: Vec<HTTPRoute>,
     is_compiled: bool,
 }
 
-#[derive(Debug, Clone)]
-struct Route {
+#[derive(Debug)]
+pub struct HTTPRoute {
     path: String,
     method: String,
     handler: HandlerFunc,
-    middlewares: Vec<HandlerFunc>,
+    middlewares: Vec<Middleware>,
     // built by Router::compile()
     regex: Option<Regex>,
 }
 
-impl Router {
+impl HTTPRouter {
     pub fn new() -> Self {
         Self {
             middlewares: Vec::new(),
@@ -40,31 +42,41 @@ impl Router {
         &mut self,
         path: impl Into<String>,
         handler: HandlerFunc,
-        middlewares: &[HandlerFunc],
+        middlewares: &[Middleware],
     ) {
-        self.get.push(Route::new(path, "GET", handler, middlewares));
+        self.get
+            .push(HTTPRoute::new(path, "GET", handler, middlewares));
     }
 
     pub fn POST(
         &mut self,
         path: impl Into<String>,
         handler: HandlerFunc,
-        middlewares: &[HandlerFunc],
+        middlewares: &[Middleware],
     ) {
         self.post
-            .push(Route::new(path, "POST", handler, middlewares));
+            .push(HTTPRoute::new(path, "POST", handler, middlewares));
     }
 
     // turns every route path into a regex so lookups are just a matching loop
     pub fn compile(&mut self) {
         for route in self.get.iter_mut().chain(self.post.iter_mut()) {
-            route.regex = Some(Route::path_to_regex(&route.path));
+            route.regex = Some(HTTPRoute::path_to_regex(&route.path));
         }
         self.is_compiled = true;
     }
 
     // finds the matching route and extracts the path params
-    fn get_route(&self, method: &str, path: &str) -> Option<(&Route, HashMap<String, String>)> {
+    pub fn get_route(
+        &self,
+        method: &str,
+        path: &str,
+    ) -> Option<(
+        HandlerFunc,
+        HashMap<String, String>,
+        &Vec<Middleware>,
+        &Vec<Middleware>,
+    )> {
         assert!(self.is_compiled, "call compile() first");
 
         let routes = match method {
@@ -84,33 +96,20 @@ impl Router {
                             .map(|m| (name.to_string(), m.as_str().to_string()))
                     })
                     .collect();
-                return Some((route, params));
+
+                return Some((route.handler, params, &self.middlewares, &route.middlewares));
             }
         }
         None
     }
-
-    // look up the route, run global middlewares, then the route itself
-    pub fn route(&self, ctx: &Context) -> Option<HashMap<String, String>> {
-        let (route, params) = self.get_route(ctx)?;
-
-        for middleware in self.middlewares.iter() {
-            middleware();
-        }
-        route.run();
-        Some(params)
-    }
-    pub fn add_middleware(&mut self, middleware: HandlerFunc) {
-        self.middlewares.push(middleware);
-    }
 }
 
-impl Route {
+impl HTTPRoute {
     fn new(
         path: impl Into<String>,
         method: impl Into<String>,
         handler: HandlerFunc,
-        middlewares: &[HandlerFunc],
+        middlewares: &[Middleware],
     ) -> Self {
         Self {
             path: path.into(),
@@ -134,27 +133,17 @@ impl Route {
             .join("/");
         Regex::new(&format!("^{pattern}/?$")).expect("invalid route path")
     }
-
-    fn run(&self, ctx: &mut HTTPContext) {
-        for middleware in &self.middlewares {
-            middleware(ctx);
-        }
-        (self.handler)(ctx);
-    }
 }
 
 /*
  *  fn main() {
- *      let mut router = Router::new();
- *      router.middlewares.push(log);
+ *      let mut router = HTTPRouter::new();
  *      router.GET("/", index, &[]);
  *      router.GET("/users/:id", user, &[]);
  *      router.GET("/users/:id/posts/:post_id", user, &[]);
  *      router.compile();
  *
- *      match router.route("GET", "/users/42/posts/7") {
- *          Some(params) => println!("{params:?}"), // {"id": "42", "post_id": "7"}
- *          None => println!("404"),
- *      }
+ *      // leak it once so every thread can hold a &'static HTTPRouter
+ *      let router: &'static HTTPRouter = Box::leak(Box::new(router));
  *  }
 */

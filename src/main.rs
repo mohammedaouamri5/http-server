@@ -1,14 +1,16 @@
 use log::{debug, error, info, warn};
 use std::io::Write;
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
 
-use crate::constants::response::{INTERNAL_SERVER_ERROR, NOT_FOUND, OK};
+use crate::constants::response::OK;
 
 mod constants;
 mod http;
 mod utile;
 
+//
+// type HandlerFunc = fn(&mut HTTPContext) -> Result<(), HTTPError>;
+//
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
         .format_line_number(true)
@@ -19,7 +21,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let listener = TcpListener::bind("127.0.0.1:4221")?;
 
-    let mut router = http::Router
     for stream in listener.incoming() {
         let mut stream = stream?; // `mut` here because we write to it below
 

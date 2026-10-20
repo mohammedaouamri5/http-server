@@ -7,10 +7,6 @@ use crate::constants::response::{
     PAYLOAD_TOO_LARGE, REQUEST_TIMEOUT,
 };
 
-const MAX_LINE: u64 = 8 * 1024;
-const MAX_HEADERS: usize = 100;
-const MAX_BODY: usize = 1024 * 1024;
-
 #[derive(Debug)]
 pub enum HTTPError {
     BadRequest(String),
@@ -75,3 +71,11 @@ macro_rules! http_err {
         { HTTPError::$variant(msg) }
     }};
 }
+
+pub enum Flow {
+    Next,
+    Break,
+    Error(HTTPError),
+}
+
+impl Flow {}
