@@ -1,15 +1,36 @@
+use env_logger::fmt::style::AnsiColor::Cyan;
 use log::{error, info};
 use std::net::{TcpListener, TcpStream};
 
 use crate::{
     constants::server,
-    http::{Context::HTTPContext, Error::HTTPError, Router::HTTPRouter},
+    http::{
+        Context::HTTPContext,
+        Error::{Flow, HTTPError},
+        Router::HTTPRouter,
+    },
     utile::files::is_in_public,
 };
 
 mod constants;
 mod http;
 mod utile;
+
+// pub type Middleware = fn(&mut HTTPContext<'_>) -> Flow;
+
+fn logging_middleware(ctx: &mut HTTPContext<'_>) {
+    let peer = ctx.get_peer();
+    match peer {
+        Ok(peer) => {
+            info!("the client ip is {}", peer.ip());
+            ctx.Next();
+        }
+        Err(_err) => {
+            info!("unknown client {}", _err);
+            ctx.Error(_err);
+        }
+    }
+}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
@@ -20,7 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let mut router = HTTPRouter::new();
-    router.GET("/", index, &[]);
+    router.add_middlewares(&[logging_middleware]);
     router.GET("/health", health, &[]);
     router.GET("/hello/:name", hello, &[]);
     router.GET("/users/:id", user, &[]);
@@ -50,9 +71,13 @@ fn handle(stream: TcpStream, router: &'static HTTPRouter) -> Result<(), HTTPErro
     let mut ctx = HTTPContext::new(stream)?;
     info!("{} {}", ctx.get_method()?, ctx.get_url()?);
 
-    ctx.route(router);
-    // `run` writes the response (200, or 404/500)
-    ctx.run()
+    if ctx.route(router) {
+        // `run` writes the response (200, or 404/500)
+        return ctx.run();
+    } else {
+        ctx.Error(http_err!(NotFound, "the route do not exist"));
+    }
+    Ok(())
 }
 
 fn health(ctx: &mut HTTPContext<'_>) -> Result<(), HTTPError> {

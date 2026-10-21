@@ -7,7 +7,7 @@ use crate::http::{
 };
 
 pub type HandlerFunc = fn(&mut HTTPContext<'_>) -> Result<(), HTTPError>;
-pub type Middleware = fn(&mut HTTPContext<'_>) -> Flow;
+pub type Middleware = fn(&mut HTTPContext<'_>);
 // this will have a list of routes and the function handler of each
 #[derive(Debug)]
 pub struct HTTPRouter {
@@ -105,6 +105,10 @@ impl HTTPRouter {
             }
         }
         None
+    }
+
+    pub fn add_middlewares(&mut self, middlewares: &[Middleware]) {
+        self.middlewares.extend_from_slice(middlewares);
     }
 }
 

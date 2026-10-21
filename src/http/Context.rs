@@ -1,4 +1,8 @@
-use std::{collections::HashMap, io::Write, net::TcpStream};
+use std::{
+    collections::HashMap,
+    io::{self, Write},
+    net::{SocketAddr, TcpStream},
+};
 
 use crate::{
     constants::response::{self, OK},
@@ -51,7 +55,7 @@ impl<'a> HTTPContext<'a> {
         })
     }
 
-    pub fn route(&mut self, router: &'a HTTPRouter) {
+    pub fn route(&mut self, router: &'a HTTPRouter) -> bool {
         assert_eq!(
             self.request.url.is_empty(),
             false,
@@ -68,10 +72,9 @@ impl<'a> HTTPContext<'a> {
                 self.handler = Some(handler);
                 self.middlewares = Some(middlewares);
                 self.params = Some(params);
+                true
             }
-            None => {
-                return;
-            }
+            None => false,
         }
     }
 
@@ -112,11 +115,7 @@ impl<'a> HTTPContext<'a> {
             if i < self.middlewares.unwrap().len() {
                 self.i_middlewares = Some(i + 1);
                 let middleware = self.middlewares.unwrap()[i];
-                match middleware(self) {
-                    Flow::Next => {}
-                    Flow::Break => self.i_middlewares = None,
-                    Flow::Error(err) => return Err(err),
-                }
+                middleware(self);
                 return Ok(());
             }
             self.i_middlewares = None;
@@ -194,5 +193,16 @@ impl<'a> HTTPContext<'a> {
         response.set_status(response::INTERNAL_SERVER_ERROR);
         let body = response.buffer().unwrap();
         self.stream.write_all(&body).unwrap();
+    }
+    //  pub fn get_peer(&self) -> Result<SocketAddr, HTTPError> {
+    //      self.stream
+    //          .peer_addr()
+    //          .map_err(|err| http_err!(BadRequest, "unknown peer {}", err));
+    //  }
+
+    pub fn get_peer(&self) -> Result<SocketAddr, HTTPError> {
+        self.stream
+            .peer_addr()
+            .map_err(|err| http_err!(BadRequest, "unknown peer {}", err))
     }
 }
